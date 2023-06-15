@@ -5,6 +5,7 @@ import smtplib
 import ssl
 from dotenv import load_dotenv
 from email.message import EmailMessage
+from telebot import types
 
 load_dotenv()
 
@@ -32,17 +33,17 @@ class BaseHandler:
     def send_email(self, message):
         raise NotImplementedError("send_email method must be implemented in derived classes.")
 
-    def send_message(self, chat_id, message):
-        self.bot.send_message(chat_id, message)
+    def send_message(self, chat_id, message, reply_markup=None):
+        self.bot.send_message(chat_id, message, reply_markup=reply_markup)
 
 
 # Telegram bot handler
 class BotHandler(BaseHandler):
     def send_email(self, message):
         chat_id = message.chat.id
-        self.bot.send_message(chat_id, "Please provide the recipient's email addresses, separated by commas."
-                                       "\nПожалуйста, укажите адреса электронной почты получателей, "
-                                       "разделив их запятыми.")
+        self.send_message(chat_id, "Please provide the recipient's email addresses, separated by commas."
+                                   "\nПожалуйста, укажите адреса электронной почты получателей, "
+                                   "разделив их запятыми.")
 
         # Register the next step handler
         self.bot.register_next_step_handler(message, self.handle_email_recipients)
@@ -52,8 +53,8 @@ class BotHandler(BaseHandler):
         recipients = message.text.split(',')
         recipients = [email.strip() for email in recipients]
         print(recipients)
-        self.bot.send_message(chat_id, "Please provide the email subject."
-                                       "\nПожалуйста, укажите тему электронного письма.")
+        self.send_message(chat_id, "Please provide the email subject."
+                                   "\nПожалуйста, укажите тему электронного письма.")
 
         # Register the next step handler
         self.bot.register_next_step_handler(message, self.handle_email_subject, recipients)
@@ -62,8 +63,8 @@ class BotHandler(BaseHandler):
         chat_id = message.chat.id
         email_subject = message.text
         print(email_subject)
-        self.bot.send_message(chat_id, "Please provide the email body."
-                                       "\nПожалуйста, укажите текст электронного письма.")
+        self.send_message(chat_id, "Please provide the email body."
+                                   "\nПожалуйста, укажите текст электронного письма.")
 
         # Register the next step handler
         self.bot.register_next_step_handler(message, self.handle_email_body, recipients, email_subject)
@@ -72,21 +73,23 @@ class BotHandler(BaseHandler):
         chat_id = message.chat.id
         email_body = message.text
         print(email_body)
-        self.bot.send_message(chat_id, "Do you want to upload an image? (Yes/No)"
-                                       "\nВы хотите загрузить изображение? (Да/Нет)")
+
+        # Create a pop-up menu with two options
+        keyboard = self.create_menu(["Yes", "No"], one_time_keyboard=True)
+        self.send_message(chat_id, "Do you want to upload an image?"
+                                   "\nВы хотите загрузить изображение?", reply_markup=keyboard)
 
         # Register the next step handler
         self.bot.register_next_step_handler(message, self.handle_upload_choice, recipients, email_subject, email_body)
 
     def handle_upload_choice(self, message, recipients, email_subject, email_body):
         chat_id = message.chat.id
-        choice = message.text.lower()
 
-        if choice == 'yes' or choice == 'да':
-            self.bot.send_message(chat_id, "Please upload the image(s). Send 'done' when finished."
-                                           "(Send one image at a time)"
-                                           "\nПожалуйста, загрузите изображение (изображения). Отправьте .\"готово\", "
-                                           "когда закончите.(Отправляйте по одному изображению за раз)")
+        if message.text.lower() == 'yes' or message.text.lower() == 'да':
+            self.send_message(chat_id, "Please upload the image(s). Send 'done' when finished."
+                                       "(Send one image at a time)"
+                                       "\nПожалуйста, загрузите изображение (изображения). Отправьте 'done', "
+                                       "когда закончите. (Отправляйте по одному изображению за раз)")
             # Register the next step handler
             self.bot.register_next_step_handler(message, self.handle_uploaded_images, recipients, email_subject,
                                                 email_body, [])
@@ -97,26 +100,10 @@ class BotHandler(BaseHandler):
         chat_id = message.chat.id
 
         if message.photo:
-            # Retrieve the photo file ID
-            photo_id = message.photo[-1].file_id
-
-            # Get the file path using the file ID
-            file_info = bot.get_file(photo_id)
-            file_path = file_info.file_path
-
-            # Download the image file
-            image_data = bot.download_file(file_path)
-
-            # Extract the image file extension from the file path
-            image_extension = file_path.split('.')[-1]
-
-            # Append the image data and extension to the list
-            images.append((image_data, image_extension))
-
-            self.bot.send_message(chat_id, "Image uploaded successfully. You can upload more images or send 'done'."
-                                           "\nИзображение успешно загружено. "
-                                           "Вы можете загрузить больше изображений или "
-                                           "отправить сообщение \"готово\".")
+            # ...
+            self.send_message(chat_id, "Image uploaded successfully. You can upload more images or send 'done'."
+                                       "\nИзображение успешно загружено. Вы можете загрузить больше изображений или "
+                                       "отправить 'done'.")
 
             # Register the next step handler recursively
             self.bot.register_next_step_handler(message, self.handle_uploaded_images, recipients, email_subject,
@@ -124,9 +111,13 @@ class BotHandler(BaseHandler):
         elif message.text.lower() == 'done' or message.text.lower() == 'готово':
             self.send_email_with_images(chat_id, recipients, email_subject, email_body, images)
         else:
-            self.bot.send_message(chat_id, "Invalid input. Please upload an image or send 'done'."
-                                           "\nНеверный ввод. Пожалуйста, "
-                                           "загрузите изображение или отправьте сообщение \"готово\".")
+            self.send_message(chat_id, "Invalid input. Please upload an image or send 'done'."
+                                       "\nНеверный ввод. Пожалуйста, загрузите изображение или отправьте 'done'.")
+
+    def create_menu(self, menu_options, one_time_keyboard=False):
+        keyboard = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True, one_time_keyboard=one_time_keyboard)
+        keyboard.add(*[types.KeyboardButton(option) for option in menu_options])
+        return keyboard
 
     def send_email_without_images(self, chat_id, recipients, email_subject, email_body):
         try:
@@ -142,14 +133,14 @@ class BotHandler(BaseHandler):
                 smtp.login(EMAIL_USERNAME, EMAIL_PASSWORD)
                 smtp.send_message(msg)
 
-            self.bot.send_message(chat_id, "Email sent successfully!"
-                                           "\nЭлектронное письмо успешно отправлено!")
+            self.send_message(chat_id, "Email sent successfully!"
+                                       "\nЭлектронное письмо успешно отправлено!")
         except Exception as e:
             logger.error(f"Failed to send the email: {str(e)}"
                          f"\nНе удалось отправить электронное письмо: {str(e)}")
-            self.bot.send_message(chat_id, "Failed to send the email. Please check the logs for more information."
-                                           "\nНе удалось отправить электронное письмо. Пожалуйста, "
-                                           "проверьте журналы для получения дополнительной информации.")
+            self.send_message(chat_id, "Failed to send the email. Please check the logs for more information."
+                                       "\nНе удалось отправить электронное письмо. Пожалуйста, "
+                                       "проверьте журналы для получения дополнительной информации.")
 
     def send_email_with_images(self, chat_id, recipients, email_subject, email_body, images):
         try:
@@ -169,8 +160,8 @@ class BotHandler(BaseHandler):
                 smtp.login(EMAIL_USERNAME, EMAIL_PASSWORD)
                 smtp.send_message(msg)
 
-            self.bot.send_message(chat_id, "Email sent successfully!"
-                                           "\nЭлектронное письмо успешно отправлено!")
+            self.send_message(chat_id, "Email sent successfully!"
+                                       "\nЭлектронное письмо успешно отправлено!")
         except Exception as e:
             logger.error(f"Failed to send the email: {str(e)}"
                          f"\nНе удалось отправить электронное письмо: {str(e)}")
